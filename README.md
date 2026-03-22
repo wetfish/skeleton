@@ -1,121 +1,89 @@
 # Skeleton
 
-A starter template for building Laravel applications with AI-assisted development and Docker-driven local environments. Clone this repo, rename a few things, and you're ready to start building — no need to install specific versions of PHP, MySQL, or web servers on your local machine.
-
-## What's Included
-
-- **Dockerized development environment** — PHP 8.5-FPM, Nginx, and MySQL 8.0 configured and ready to go. Run `docker compose up -d` and start working.
-- **AI development conventions** — a documented set of best practices for building Laravel apps with Claude, refined across multiple production projects.
-- **Documentation structure** — numbered markdown files in `docs/` for tracking your database schema, services, routes, frontend patterns, and feature roadmap as the project grows.
+A CLI tool for scaffolding new Laravel projects with Docker-driven local development and AI-assisted development conventions. Clone this repo, run the installer, and use the `skeleton` command to bootstrap new projects — no need to install specific versions of PHP, MySQL, or web servers on your local machine.
 
 ## Quick Start
 
-### 1. Clone and rename
-
 ```bash
-git clone git@github.com:youruser/skeleton.git my-new-project
-cd my-new-project
-rm -rf .git && git init
+git clone https://github.com/wetfish/skeleton.git
+cd skeleton
+./install.sh
 ```
 
-### 2. Find and replace
+This creates a symlink in `~/.local/bin/skeleton` so the command is available everywhere. No root access required.
 
-Search the entire project for `myproject` and replace it with your project name (lowercase, no spaces). This covers container names, database credentials, the Docker network, and Nginx config.
+Then, to start a new project:
 
-Files that contain `myproject`:
+```bash
+mkdir ~/projects/my-new-app && cd ~/projects/my-new-app
+skeleton
+```
+
+The interactive wizard walks you through project name, port configuration, license, README generation, and optionally installs Laravel for you.
+
+## What It Does
+
+Running `skeleton` in a directory will:
+
+1. Prompt for a project name (used for Docker container names, database, and network)
+2. Let you choose Nginx and MySQL host ports (default, random, or custom)
+3. Generate a random 32-character database password (stored in `.env`, never committed)
+4. Preserve or generate a README and LICENSE file
+5. Copy a Dockerized development environment (PHP 8.5-FPM, Nginx, MySQL 8.0)
+6. Generate `.env` (gitignored, contains secrets) and `.env.example` (committed, documents expected variables)
+7. Generate a `.gitignore` that protects secrets from being committed
+8. Copy AI development convention docs
+9. Optionally install Laravel, generate an app key, configure the database, and run migrations
+
+## Usage
 
 ```text
-docker-compose.yml
-docker/nginx/default.conf
-README.md
+skeleton            Start the interactive setup wizard
+skeleton --help     Show usage information
+skeleton --version  Show version number
 ```
 
-Also update the host port mappings in `docker-compose.yml` to avoid conflicts with other projects running on your machine. The defaults are:
-
-| Service | Host Port | Container Port |
-|---------|-----------|----------------|
-| Nginx   | 8080      | 80             |
-| MySQL   | 3406      | 3306           |
-
-### 3. Install Laravel
+## Installation
 
 ```bash
-docker compose up -d
-docker compose exec app composer create-project laravel/laravel .
+git clone https://github.com/wetfish/skeleton.git
+cd skeleton
+./install.sh
 ```
 
-### 4. Configure the environment
+The installer symlinks the `skeleton` command to `~/.local/bin/`. If that directory isn't in your PATH, the installer will print the export line you need to add to your shell profile.
 
-Update `laravel/.env` to use the Docker container names:
-
-```ini
-DB_CONNECTION=mysql
-DB_HOST=myproject-db
-DB_PORT=3306
-DB_DATABASE=myproject
-DB_USERNAME=myproject
-DB_PASSWORD=secret
-SESSION_DRIVER=file
-```
-
-### 5. Run migrations
+Since it's a symlink, updating is just:
 
 ```bash
-docker compose exec app php artisan migrate
+cd ~/path/to/skeleton
+git pull
 ```
 
-### 6. Build frontend assets
-
-From the host machine:
+## Uninstallation
 
 ```bash
-cd laravel && npm install && npm run build && cd ..
+cd ~/path/to/skeleton
+./install.sh --uninstall
 ```
 
-Access the app at `http://localhost:8080`.
-
-## Project Structure
-
-```text
-├── Dockerfile              # PHP 8.5-FPM with Laravel extensions and Composer
-├── docker-compose.yml      # App, Nginx, and MySQL services
-├── docker/
-│   ├── nginx/
-│   │   └── default.conf    # Nginx server block → laravel/public
-│   └── php/
-│       └── custom.ini      # PHP overrides (memory_limit, etc.)
-├── docs/
-│   ├── 01-database-schema.md
-│   ├── 02-services-and-commands.md
-│   ├── 03-routes-and-controllers.md
-│   ├── 04-frontend.md
-│   ├── 05-ai-development-notes.md
-│   └── 06-planned-features.md
-├── laravel/                # Laravel install directory (empty until step 3)
-└── README.md               # This file (replace with your project README)
-```
+This removes the `~/.local/bin/skeleton` symlink.
 
 ## Docker Environment
 
-| Container       | Image                  | Purpose                                      |
-|-----------------|------------------------|----------------------------------------------|
-| myproject-app   | php:8.5-fpm (custom)   | PHP-FPM with Laravel extensions and Composer  |
-| myproject-nginx | nginx:alpine           | Serves `laravel/public/`, proxies PHP to app  |
-| myproject-db    | mysql:8.0              | MySQL database                                |
+Each project created by skeleton gets a three-container Docker setup:
 
-| Config File              | Purpose                                          |
-|--------------------------|--------------------------------------------------|
-| `docker/nginx/default.conf` | Nginx server block pointing to `laravel/public` |
-| `docker/php/custom.ini`     | PHP overrides (memory_limit = 512M)             |
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| {name}-app | php:8.5-fpm (custom) | PHP-FPM with Laravel extensions and Composer |
+| {name}-nginx | nginx:alpine | Serves `laravel/public/`, proxies PHP to app |
+| {name}-db | mysql:8.0 | MySQL database |
 
-## Artisan Commands
-
-All artisan commands run through the `app` container. The working directory is already set to the Laravel project root:
+All artisan commands run through the `app` container during local development:
 
 ```bash
 docker compose exec app php artisan migrate
 docker compose exec app php artisan make:model Example -m
-docker compose exec app php artisan tinker
 ```
 
 On production servers where Laravel runs directly, drop the Docker prefix:
@@ -124,11 +92,58 @@ On production servers where Laravel runs directly, drop the Docker prefix:
 php artisan migrate
 ```
 
-## Documentation
+## Secrets Management
 
-The `docs/` directory contains numbered markdown files for project documentation. Start with `05-ai-development-notes.md` which is pre-filled with conventions for AI-assisted development. The rest are blank templates — fill them in as your project takes shape.
+Docker Compose reads the root `.env` file for container configuration (database credentials, port mappings, project name). This file is generated by skeleton and gitignored by default — secrets never touch the repo.
+
+A `.env.example` file is committed alongside it to document the expected variables with placeholder values. New developers clone the repo, copy `.env.example` to `.env`, and fill in their own values (or re-run `skeleton` to generate fresh ones).
+
+Laravel's own `laravel/.env` is also gitignored by Laravel's default `.gitignore`.
+
+## AI Development Conventions
+
+Every project includes a `docs/05-ai-development-notes.md` file with conventions for building Laravel apps with Claude, refined across multiple production projects. These cover: reviewing docs before starting work, keeping documentation current, providing full file artifacts, code block formatting, file path references, migration ordering, schema conventions, database connection tips, validation patterns, and more.
+
+## Project Structure
+
+```text
+skeleton/
+├── install.sh              # Installer — symlinks CLI to ~/.local/bin
+├── skeleton.sh             # The main CLI script
+├── VERSION                 # Version string
+├── templates/
+│   ├── .gitignore          # Protects .env from being committed
+│   ├── Dockerfile
+│   ├── docker-compose.yml  # Uses ${VARIABLE} refs, reads from .env
+│   ├── docker/
+│   │   ├── nginx/
+│   │   │   └── default.conf
+│   │   └── php/
+│   │       └── custom.ini
+│   ├── docs/
+│   │   ├── 01-database-schema.md
+│   │   ├── 02-services-and-commands.md
+│   │   ├── 03-routes-and-controllers.md
+│   │   ├── 04-frontend.md
+│   │   ├── 05-ai-development-notes.md
+│   │   └── 06-planned-features.md
+│   └── licenses/
+│       ├── AGPL-3.0
+│       ├── BSD-3-Clause
+│       ├── GPL-3.0
+│       └── MIT
+├── README.md
+└── LICENSE
+```
+
+The `templates/` directory contains the files that get copied to new projects. Everything outside `templates/` belongs to the skeleton tool itself and is never copied.
+
+## Adding License Templates
+
+To add a new license option, drop a text file into `templates/licenses/`. Use `{{YEAR}}` and `{{COPYRIGHT_HOLDER}}` as placeholders — they'll be replaced during setup. The license menu is built dynamically from whatever files exist in that directory, so no code changes are needed.
 
 ## Projects Built With This Template
 
-- **[Andon Alert](https://github.com/youruser/andonalert)** — Factory notification system for reporting issues to supervisors
-- **[EzTaxes](https://github.com/youruser/eztaxes)** — S-Corp tax management dashboard with Gusto, Coinbase, and CashApp integrations
+- **[Andon Alert](https://andonalert.net)** — Factory notification system for reporting issues to supervisors
+- **[EzTaxes](https://eztaxes.wetfish.net)** — S-Corp tax management dashboard with Gusto, Coinbase, and CashApp integrations
+- **[Success](https://success.wetfish.net)** — Tool for helping job-seekers build their resumes, ace interviews, and stay on task at work

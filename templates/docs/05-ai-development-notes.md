@@ -2,11 +2,24 @@
 
 This project is being built with the assistance of Claude (Anthropic). The following conventions must be maintained for consistent, high-quality output. These notes serve as a reference for both the AI assistant and the developer.
 
-## Code Block Formatting
+## Before Starting Work
 
-Always use an explicit language identifier on every code block (e.g., `bash`, `ini`, `text`, `php`). Include a descriptive title line before each block.
+Review the relevant documentation files in this `docs/` directory before beginning any development work. At minimum, check:
 
-Bare ` ``` ` without a language tag causes consecutive blocks to merge into a single block in the Claude chat renderer. This was identified early and must be avoided throughout all documentation and chat output.
+- `01-database-schema.md` for current table structure
+- `02-services-and-commands.md` for existing service classes and artisan commands
+- `03-routes-and-controllers.md` to understand the current route/controller layout
+- `04-frontend.md` for Blade template structure and UI conventions
+
+This ensures new work builds on existing patterns rather than introducing inconsistencies.
+
+## Keep Documentation Updated
+
+When development work introduces new files, database columns, design decisions, or changes to existing patterns, update the relevant documentation files as part of the same session. Documentation should always reflect the current state of the project, not lag behind it.
+
+## Provide Full File Artifacts
+
+When making changes to existing files, always provide the complete updated file rather than piecemeal diffs, snippets, or partial patches. The developer will review and apply the full file directly. This avoids ambiguity about where changes go and reduces the risk of merge errors.
 
 ## File Path References
 
@@ -36,6 +49,12 @@ codium laravel/routes/web.php
 
 When providing multiple files with the same filename (e.g., multiple `index.blade.php` files), use descriptive artifact names so they are distinguishable in the download list. For example: "Users index.blade" and "Settings index.blade" rather than two files both named "index.blade".
 
+## Code Block Formatting
+
+Always use an explicit language identifier on every code block (e.g., `bash`, `ini`, `text`, `php`). Include a descriptive title line before each block.
+
+Bare ` ``` ` without a language tag causes consecutive blocks to merge into a single block in the Claude chat renderer. This was identified early and must be avoided throughout all documentation and chat output.
+
 ## Artisan Commands
 
 All Laravel artisan commands should be run via Docker Compose during local development. The `app` container's working directory is already set to the Laravel project root:
@@ -52,6 +71,8 @@ php artisan migrate
 ```
 
 ## Migration Generation
+
+Always use Laravel's Artisan command to generate migration files. Never create migration files manually with dummy or sequential timestamps. The generated timestamp ensures correct ordering across environments and avoids conflicts when multiple sessions produce migrations on the same day.
 
 When generating multiple migrations in sequence, add `sleep 1` between commands to ensure unique timestamps. MySQL requires referenced tables to exist before foreign keys point to them, and alphabetical ordering of same-timestamp migrations can cause failures:
 
@@ -76,6 +97,12 @@ All forms must display validation errors visibly to the user (typically in red t
 ## Schema Conventions
 
 All status and type fields use string columns instead of MySQL ENUMs. ENUMs are difficult to modify in production migrations and cause issues with schema diffing tools. Expected values are documented in the schema docs and enforced in application logic.
+
+## Database Connections
+
+When connecting to the MySQL container from the host machine (e.g., DBeaver, mysqldump, or other database tools), use `127.0.0.1` instead of `localhost`. MySQL interprets `localhost` as a Unix socket connection, but Docker exposes the database over TCP only. Using `localhost` will result in "connection refused" errors.
+
+From within the Docker network (e.g., in `laravel/.env`), use the Docker Compose service name `db` as the host.
 
 ## Privacy
 

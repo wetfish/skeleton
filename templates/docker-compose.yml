@@ -3,45 +3,45 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: myproject-app
+    container_name: ${APP_NAME}-app
     restart: unless-stopped
     working_dir: /var/www/laravel
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./:/var/www
     networks:
-      - myproject
+      - app-network
 
   nginx:
     image: nginx:alpine
-    container_name: myproject-nginx
+    container_name: ${APP_NAME}-nginx
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     volumes:
       - ./:/var/www
       - ./docker/nginx:/etc/nginx/conf.d
     networks:
-      - myproject
+      - app-network
 
   db:
     image: mysql:8.0
-    container_name: myproject-db
+    container_name: ${APP_NAME}-db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: myproject
-      MYSQL_ROOT_PASSWORD: secret
-      MYSQL_PASSWORD: secret
-      MYSQL_USER: myproject
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
     ports:
-      - "3406:3306"
+      - "${DB_PORT:-3306}:3306"
     volumes:
       - dbdata:/var/lib/mysql
     networks:
-      - myproject
+      - app-network
 
 networks:
-  myproject:
+  app-network:
     driver: bridge
 
 volumes:
