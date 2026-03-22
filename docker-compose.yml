@@ -1,0 +1,49 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: myproject-app
+    restart: unless-stopped
+    working_dir: /var/www/laravel
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./:/var/www
+    networks:
+      - myproject
+
+  nginx:
+    image: nginx:alpine
+    container_name: myproject-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx:/etc/nginx/conf.d
+    networks:
+      - myproject
+
+  db:
+    image: mysql:8.0
+    container_name: myproject-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: myproject
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_PASSWORD: secret
+      MYSQL_USER: myproject
+    ports:
+      - "3406:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+    networks:
+      - myproject
+
+networks:
+  myproject:
+    driver: bridge
+
+volumes:
+  dbdata:
+    driver: local
