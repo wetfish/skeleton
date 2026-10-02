@@ -74,7 +74,7 @@ php artisan migrate
 
 Always use Laravel's Artisan command to generate migration files. Never create migration files manually with dummy or sequential timestamps. The generated timestamp ensures correct ordering across environments and avoids conflicts when multiple sessions produce migrations on the same day.
 
-When generating multiple migrations in sequence, add `sleep 1` between commands to ensure unique timestamps. MySQL requires referenced tables to exist before foreign keys point to them, and alphabetical ordering of same-timestamp migrations can cause failures:
+When generating multiple migrations in sequence, add `sleep 1` between commands to ensure unique timestamps. The database requires referenced tables to exist before foreign keys point to them, and alphabetical ordering of same-timestamp migrations can cause failures:
 
 ```bash
 docker compose exec app php artisan make:migration create_first_table
@@ -96,13 +96,9 @@ All forms must display validation errors visibly to the user (typically in red t
 
 ## Schema Conventions
 
-All status and type fields use string columns instead of MySQL ENUMs. ENUMs are difficult to modify in production migrations and cause issues with schema diffing tools. Expected values are documented in the schema docs and enforced in application logic.
+All status and type fields use string columns instead of database enum types (MySQL `ENUM` columns or PostgreSQL enum types). Enums are difficult to modify in production migrations and cause issues with schema diffing tools. Expected values are documented in the schema docs and enforced in application logic.
 
-## Database Connections
-
-When connecting to the MySQL container from the host machine (e.g., DBeaver, mysqldump, or other database tools), use `127.0.0.1` instead of `localhost`. MySQL interprets `localhost` as a Unix socket connection, but Docker exposes the database over TCP only. Using `localhost` will result in "connection refused" errors.
-
-From within the Docker network (e.g., in `laravel/.env`), use the Docker Compose service name `db` as the host.
+{{DB_CONNECTION_NOTES}}
 
 ## Privacy
 

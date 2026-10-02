@@ -24,21 +24,7 @@ services:
     networks:
       - app-network
 
-  db:
-    image: mysql:8.0
-    container_name: ${APP_NAME}-db
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_USER: ${DB_USERNAME}
-    ports:
-      - "${DB_PORT:-3306}:3306"
-    volumes:
-      - dbdata:/var/lib/mysql
-    networks:
-      - app-network
+{{DB_SERVICE}}
 
 networks:
   app-network:

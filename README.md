@@ -1,6 +1,6 @@
 # Skeleton
 
-A CLI tool for scaffolding new Laravel projects with Docker-driven local development and AI-assisted development conventions. Clone this repo, run the installer, and use the `skeleton` command to bootstrap new projects — no need to install specific versions of PHP, MySQL, or web servers on your local machine.
+A CLI tool for scaffolding new Laravel projects with Docker-driven local development and AI-assisted development conventions. Clone this repo, run the installer, and use the `skeleton` command to bootstrap new projects — no need to install specific versions of PHP, MySQL, PostgreSQL, or web servers on your local machine.
 
 ## Quick Start
 
@@ -26,14 +26,15 @@ The interactive wizard walks you through project name, port configuration, licen
 Running `skeleton` in a directory will:
 
 1. Prompt for a project name (used for Docker container names, database, and network)
-2. Let you choose Nginx and MySQL host ports (default, random, or custom)
-3. Generate a random 32-character database password (stored in `.env`, never committed)
-4. Preserve or generate a README and LICENSE file
-5. Copy a Dockerized development environment (PHP 8.5-FPM, Nginx, MySQL 8.0)
-6. Generate `.env` (gitignored, contains secrets) and `.env.example` (committed, documents expected variables)
-7. Generate a `.gitignore` that protects secrets from being committed
-8. Copy AI development convention docs
-9. Optionally install Laravel, generate an app key, configure the database, and run migrations
+2. Let you choose a database engine: MySQL 8.0, PostgreSQL 17, or PostgreSQL 17 with PostGIS
+3. Let you choose Nginx and database host ports (default, random, or custom)
+4. Generate a random 32-character database password (stored in `.env`, never committed)
+5. Preserve or generate a README and LICENSE file
+6. Copy a Dockerized development environment (PHP 8.5-FPM, Nginx, and your chosen database)
+7. Generate `.env` (gitignored, contains secrets) and `.env.example` (committed, documents expected variables)
+8. Generate a `.gitignore` that protects secrets from being committed
+9. Copy AI development convention docs
+10. Optionally install Laravel, generate an app key, configure the database, and run migrations
 
 ## Usage
 
@@ -77,7 +78,19 @@ Each project created by skeleton gets a three-container Docker setup:
 |-----------|-------|---------|
 | {name}-app | php:8.5-fpm (custom) | PHP-FPM with Laravel extensions and Composer |
 | {name}-nginx | nginx:alpine | Serves `laravel/public/`, proxies PHP to app |
-| {name}-db | mysql:8.0 | MySQL database |
+| {name}-db | mysql:8.0, postgres:17, or postgis/postgis:17-3.5 | Database (engine chosen during setup) |
+
+## Database Engines
+
+| Option | Image | Laravel driver | PHP extension | Default host port |
+|--------|-------|----------------|---------------|-------------------|
+| MySQL 8.0 | mysql:8.0 | `mysql` | pdo_mysql | 3306 |
+| PostgreSQL 17 | postgres:17 | `pgsql` | pdo_pgsql | 5432 |
+| PostgreSQL 17 + PostGIS 3.5 | postgis/postgis:17-3.5 | `pgsql` | pdo_pgsql | 5432 |
+
+The Dockerfile, the `db` service in `docker-compose.yml`, the Laravel `.env` database settings, and the database section of `docs/05-ai-development-notes.md` are all generated for the engine you choose. Engine-specific fragments live in `templates/database/`.
+
+The `postgis/postgis` image may not publish native arm64 builds. On Apple Silicon, Docker can run it under emulation, which works but is slower.
 
 All artisan commands run through the `app` container during local development:
 
@@ -115,6 +128,11 @@ skeleton/
 │   ├── .gitignore          # Protects .env from being committed
 │   ├── Dockerfile
 │   ├── docker-compose.yml  # Uses ${VARIABLE} refs, reads from .env
+│   ├── database/           # Engine fragments, inserted into templates during setup
+│   │   ├── mysql.yml       # MySQL db service for docker-compose.yml
+│   │   ├── mysql-notes.md  # MySQL notes for docs/05-ai-development-notes.md
+│   │   ├── pgsql.yml       # PostgreSQL / PostGIS db service
+│   │   └── pgsql-notes.md  # PostgreSQL notes for docs/05-ai-development-notes.md
 │   ├── docker/
 │   │   ├── nginx/
 │   │   │   └── default.conf
@@ -136,7 +154,7 @@ skeleton/
 └── LICENSE
 ```
 
-The `templates/` directory contains the files that get copied to new projects. Everything outside `templates/` belongs to the skeleton tool itself and is never copied.
+The `templates/` directory contains the files that get copied to new projects. Everything outside `templates/` belongs to the skeleton tool itself and is never copied. Files in `templates/database/` are not copied directly. Their contents replace the `{{DB_SERVICE}}` and `{{DB_CONNECTION_NOTES}}` placeholders, and the Dockerfile's `{{DB_SYSTEM_PACKAGES}}` and `{{DB_PHP_EXTENSION}}` placeholders are filled in for the chosen engine.
 
 ## Adding License Templates
 

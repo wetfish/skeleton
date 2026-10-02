@@ -11,6 +11,7 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 TEMPLATES_DIR="$SCRIPT_DIR/templates"
 LICENSES_DIR="$TEMPLATES_DIR/licenses"
+DATABASE_DIR="$TEMPLATES_DIR/database"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 
 # Read version
@@ -33,9 +34,19 @@ SKELETON_MARKERS=("install.sh" "skeleton.sh" "templates")
 NGINX_PORT_DEFAULT=8080
 NGINX_PORT_MIN=8080
 NGINX_PORT_MAX=8480
-MYSQL_PORT_DEFAULT=3306
-MYSQL_PORT_MIN=3306
-MYSQL_PORT_MAX=3706
+
+# Database engine settings — populated by configure_database()
+DB_ENGINE=""
+DB_LABEL=""
+DB_IMAGE=""
+DB_CONNECTION=""
+DB_INTERNAL_PORT=""
+DB_PORT_DEFAULT=""
+DB_PORT_MIN=""
+DB_PORT_MAX=""
+DB_PHP_EXTENSION=""
+DB_SYSTEM_PACKAGES=""
+DB_FRAGMENT=""
 
 # Colors
 RED='\033[0;31m'
@@ -84,11 +95,12 @@ Interactive Setup:
   1. Project directory    — use current directory or specify a path
   2. Conflict check       — warns if target has files that would be overwritten
   3. Project name         — lowercase name for containers, database, and network
-  4. Nginx host port      — default (8080), random (8080-8480), or custom
-  5. MySQL host port      — default (3306), random (3306-3706), or custom
-  6. README               — preserves existing or generates a new one
-  7. License              — AGPL-3.0, GPL-3.0, MIT, BSD-3-Clause, custom, or none
-  8. Laravel installation — optionally installs Laravel and configures the database
+  4. Database engine      — MySQL 8.0, PostgreSQL 17, or PostgreSQL 17 + PostGIS
+  5. Nginx host port      — default (8080), random (8080-8480), or custom
+  6. Database host port   — default, random, or custom (MySQL 3306, PostgreSQL 5432)
+  7. README               — preserves existing or generates a new one
+  8. License              — AGPL-3.0, GPL-3.0, MIT, BSD-3-Clause, custom, or none
+  9. Laravel installation — optionally installs Laravel and configures the database
 
 Installation:
   git clone https://github.com/wetfish/skeleton.git
@@ -250,6 +262,132 @@ check_conflicts() {
 }
 
 # =============================================================================
+# Database Engine
+# =============================================================================
+
+configure_database() {
+    DB_ENGINE="$1"
+
+    case "$DB_ENGINE" in
+        mysql)
+            DB_LABEL="MySQL 8.0"
+            DB_IMAGE="mysql:8.0"
+            DB_CONNECTION="mysql"
+            DB_INTERNAL_PORT=3306
+            DB_PORT_DEFAULT=3306
+            DB_PORT_MIN=3306
+            DB_PORT_MAX=3706
+            DB_PHP_EXTENSION="pdo_mysql"
+            DB_SYSTEM_PACKAGES=""
+            DB_FRAGMENT="mysql"
+            ;;
+        pgsql)
+            DB_LABEL="PostgreSQL 17"
+            DB_IMAGE="postgres:17"
+            DB_CONNECTION="pgsql"
+            DB_INTERNAL_PORT=5432
+            DB_PORT_DEFAULT=5432
+            DB_PORT_MIN=5432
+            DB_PORT_MAX=5832
+            DB_PHP_EXTENSION="pdo_pgsql"
+            DB_SYSTEM_PACKAGES="libpq-dev"
+            DB_FRAGMENT="pgsql"
+            ;;
+        postgis)
+            DB_LABEL="PostgreSQL 17 + PostGIS 3.5"
+            DB_IMAGE="postgis/postgis:17-3.5"
+            DB_CONNECTION="pgsql"
+            DB_INTERNAL_PORT=5432
+            DB_PORT_DEFAULT=5432
+            DB_PORT_MIN=5432
+            DB_PORT_MAX=5832
+            DB_PHP_EXTENSION="pdo_pgsql"
+            DB_SYSTEM_PACKAGES="libpq-dev"
+            DB_FRAGMENT="pgsql"
+            ;;
+        *)
+            echo -e "${RED}Unknown database engine: $DB_ENGINE${NC}" >&2
+            exit 1
+            ;;
+    esac
+}
+
+select_database() {
+    echo ""
+    echo -e "${BOLD}Step 3: Database Engine${NC}"
+    echo ""
+    echo "  1) MySQL 8.0"
+    echo "  2) PostgreSQL 17"
+    echo "  3) PostgreSQL 17 + PostGIS 3.5 (geographic queries)"
+    echo ""
+
+    local db_choice
+    while true; do
+        read -rp "Choose [1/2/3]: " db_choice
+        case "$db_choice" in
+            1) configure_database "mysql"; break ;;
+            2) configure_database "pgsql"; break ;;
+            3) configure_database "postgis"; break ;;
+            *) echo -e "${RED}Please enter 1, 2, or 3.${NC}" ;;
+        esac
+    done
+
+    echo -e "Database: ${GREEN}$DB_LABEL${NC}"
+}
+
+# Replace the line containing a {{PLACEHOLDER}} with the contents of a fragment file
+insert_fragment() {
+    local file="$1"
+    local placeholder="$2"
+    local fragment="$3"
+    local tmp
+    tmp="$(mktemp)"
+
+    awk -v ph="$placeholder" -v frag="$fragment" '
+        index($0, ph) {
+            while ((getline line < frag) > 0) print line
+            close(frag)
+            next
+        }
+        { print }
+    ' "$file" > "$tmp"
+
+    # Write back with cat to preserve the original file permissions
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# Replace single-value {{PLACEHOLDERS}} with the configured values
+substitute_placeholders() {
+    local file="$1"
+    local project_name="$2"
+
+    sed -i \
+        -e "s|{{DB_IMAGE}}|${DB_IMAGE}|g" \
+        -e "s|{{DB_LABEL}}|${DB_LABEL}|g" \
+        -e "s|{{DB_PHP_EXTENSION}}|${DB_PHP_EXTENSION}|g" \
+        -e "s|{{PROJECT_NAME}}|${project_name}|g" \
+        "$file"
+}
+
+# Check whether the database container is accepting TCP connections.
+# Checking over TCP (not the socket) skips the temporary server that the
+# MySQL and PostgreSQL images run during first-time initialization.
+db_is_ready() {
+    local target_dir="$1"
+    local project_name="$2"
+    local db_password="$3"
+
+    if [[ "$DB_CONNECTION" == "pgsql" ]]; then
+        (cd "$target_dir" && docker compose exec -T db \
+            pg_isready -h 127.0.0.1 -U "$project_name" -d "$project_name" -q)
+    else
+        (cd "$target_dir" && docker compose exec -T db \
+            mysqladmin ping -h 127.0.0.1 -u"$project_name" -p"$db_password" --silent)
+    fi
+}
+
+# =============================================================================
 # Port Selection
 # =============================================================================
 
@@ -302,15 +440,34 @@ prompt_port() {
 
 copy_templates() {
     local target_dir="$1"
+    local project_name="$2"
 
     echo ""
     echo -e "${CYAN}Copying template files...${NC}"
 
     # Copy everything from templates/ preserving directory structure
+    # (templates/database/ holds engine fragments and is never copied directly)
     cp -r "$TEMPLATES_DIR/Dockerfile" "$target_dir/"
     cp -r "$TEMPLATES_DIR/docker-compose.yml" "$target_dir/"
     cp -r "$TEMPLATES_DIR/docker" "$target_dir/"
     cp -r "$TEMPLATES_DIR/docs" "$target_dir/"
+
+    echo -e "${CYAN}Configuring ${DB_LABEL}...${NC}"
+
+    # Insert the engine-specific compose service and documentation notes
+    insert_fragment "$target_dir/docker-compose.yml" "{{DB_SERVICE}}" "$DATABASE_DIR/${DB_FRAGMENT}.yml"
+    insert_fragment "$target_dir/docs/05-ai-development-notes.md" "{{DB_CONNECTION_NOTES}}" "$DATABASE_DIR/${DB_FRAGMENT}-notes.md"
+
+    # System packages needed to compile the PHP database driver (none for MySQL)
+    if [[ -n "$DB_SYSTEM_PACKAGES" ]]; then
+        sed -i "s|{{DB_SYSTEM_PACKAGES}}|${DB_SYSTEM_PACKAGES}|" "$target_dir/Dockerfile"
+    else
+        sed -i '/{{DB_SYSTEM_PACKAGES}}/d' "$target_dir/Dockerfile"
+    fi
+
+    substitute_placeholders "$target_dir/Dockerfile" "$project_name"
+    substitute_placeholders "$target_dir/docker-compose.yml" "$project_name"
+    substitute_placeholders "$target_dir/docs/05-ai-development-notes.md" "$project_name"
 
     # Only copy .gitignore if one doesn't already exist
     if [[ ! -f "$target_dir/.gitignore" ]]; then
@@ -322,7 +479,7 @@ generate_env() {
     local target_dir="$1"
     local project_name="$2"
     local nginx_port="$3"
-    local mysql_port="$4"
+    local db_port="$4"
     local db_password="$5"
 
     echo -e "${CYAN}Generating .env configuration...${NC}"
@@ -331,7 +488,8 @@ generate_env() {
 # Project configuration (generated by skeleton)
 APP_NAME=${project_name}
 NGINX_PORT=${nginx_port}
-DB_PORT=${mysql_port}
+DB_CONNECTION=${DB_CONNECTION}
+DB_PORT=${db_port}
 DB_DATABASE=${project_name}
 DB_USERNAME=${project_name}
 DB_PASSWORD=${db_password}
@@ -345,7 +503,8 @@ generate_env_example() {
 # Project configuration — copy to .env and fill in your values
 APP_NAME=skeleton
 NGINX_PORT=8080
-DB_PORT=3306
+DB_CONNECTION=${DB_CONNECTION}
+DB_PORT=${DB_PORT_DEFAULT}
 DB_DATABASE=skeleton
 DB_USERNAME=skeleton
 DB_PASSWORD=changeme
@@ -361,7 +520,7 @@ generate_readme() {
     local project_name="$2"
     local description="$3"
     local nginx_port="$4"
-    local mysql_port="$5"
+    local db_port="$5"
 
     cat > "$target_dir/README.md" <<EOF
 # ${project_name}
@@ -396,7 +555,7 @@ Access the app at \`http://localhost:${nginx_port}\`.
 |-----------|-------|---------|-------|
 | ${project_name}-app | php:8.5-fpm (custom) | PHP-FPM with Laravel extensions and Composer | 9000 (internal) |
 | ${project_name}-nginx | nginx:alpine | Serves \`laravel/public/\`, proxies PHP to app | ${nginx_port} → 80 |
-| ${project_name}-db | mysql:8.0 | MySQL database | ${mysql_port} → 3306 |
+| ${project_name}-db | ${DB_IMAGE} | ${DB_LABEL} database | ${db_port} → ${DB_INTERNAL_PORT} |
 
 ## Environment Configuration
 
@@ -404,7 +563,7 @@ Docker Compose reads from the root \`.env\` file for container names, ports, and
 
 Laravel's own \`laravel/.env\` handles application-level config (app key, database connection, session driver, etc.) and is also gitignored.
 
-From the host machine, the database is accessible on port \`${mysql_port}\`.
+From the host machine, the database (${DB_LABEL}) is accessible at \`127.0.0.1:${db_port}\`.
 
 ## Artisan Commands
 
@@ -534,23 +693,23 @@ install_laravel() {
     cat >> "$env_file" <<ENVBLOCK
 
 # Docker database configuration (generated by skeleton)
-DB_CONNECTION=mysql
+DB_CONNECTION=${DB_CONNECTION}
 DB_HOST=db
-DB_PORT=3306
+DB_PORT=${DB_INTERNAL_PORT}
 DB_DATABASE=${project_name}
 DB_USERNAME=${project_name}
 DB_PASSWORD=${db_password}
 SESSION_DRIVER=file
 ENVBLOCK
 
-    # Wait for MySQL to be ready before migrating
+    # Wait for the database to be ready before migrating
     echo ""
-    echo -e "${CYAN}Waiting for MySQL to be ready...${NC}"
+    echo -e "${CYAN}Waiting for ${DB_LABEL} to be ready...${NC}"
     local retries=30
-    while ! (cd "$target_dir" && docker compose exec db mysqladmin ping -u"$project_name" -p"$db_password" --silent) 2>/dev/null; do
+    while ! db_is_ready "$target_dir" "$project_name" "$db_password" 2>/dev/null; do
         retries=$((retries - 1))
         if [[ "$retries" -le 0 ]]; then
-            echo -e "${RED}MySQL did not become ready in time. You may need to run migrations manually.${NC}"
+            echo -e "${RED}${DB_LABEL} did not become ready in time. You may need to run migrations manually.${NC}"
             return 1
         fi
         sleep 2
@@ -585,9 +744,9 @@ generate_deferred_env() {
 
 APP_URL=http://localhost:${nginx_port}
 
-DB_CONNECTION=mysql
+DB_CONNECTION=${DB_CONNECTION}
 DB_HOST=db
-DB_PORT=3306
+DB_PORT=${DB_INTERNAL_PORT}
 DB_DATABASE=${project_name}
 DB_USERNAME=${project_name}
 DB_PASSWORD=${db_password}
@@ -604,7 +763,7 @@ print_summary() {
     local project_name="$1"
     local target_dir="$2"
     local nginx_port="$3"
-    local mysql_port="$4"
+    local db_port="$4"
     local db_password="$5"
     local laravel_installed="$6"
     local readme_status="$7"
@@ -618,7 +777,7 @@ print_summary() {
     echo -e "${BOLD}Project:${NC}    $project_name"
     echo -e "${BOLD}Directory:${NC}  $target_dir"
     echo -e "${BOLD}Nginx:${NC}      http://localhost:${nginx_port}"
-    echo -e "${BOLD}MySQL:${NC}      localhost:${mysql_port}"
+    echo -e "${BOLD}Database:${NC}   ${DB_LABEL} at 127.0.0.1:${db_port}"
     echo -e "${BOLD}DB User:${NC}    $project_name"
     echo -e "${BOLD}DB Password:${NC} $db_password"
     echo -e "${BOLD}README:${NC}     $readme_status"
@@ -745,14 +904,19 @@ main() {
     echo -e "Project name: ${GREEN}$PROJECT_NAME${NC}"
 
     # -------------------------------------------------------------------------
-    # Step 4 — Nginx port
+    # Step 4 — Database engine
+    # -------------------------------------------------------------------------
+    select_database
+
+    # -------------------------------------------------------------------------
+    # Step 5 — Nginx port
     # -------------------------------------------------------------------------
     NGINX_PORT="$(prompt_port "Nginx" "$NGINX_PORT_DEFAULT" "$NGINX_PORT_MIN" "$NGINX_PORT_MAX")"
 
     # -------------------------------------------------------------------------
-    # Step 5 — MySQL port
+    # Step 6 — Database port
     # -------------------------------------------------------------------------
-    MYSQL_PORT="$(prompt_port "MySQL" "$MYSQL_PORT_DEFAULT" "$MYSQL_PORT_MIN" "$MYSQL_PORT_MAX")"
+    DB_HOST_PORT="$(prompt_port "Database" "$DB_PORT_DEFAULT" "$DB_PORT_MIN" "$DB_PORT_MAX")"
 
     # -------------------------------------------------------------------------
     # Generate database password
@@ -763,10 +927,10 @@ main() {
     echo "(This will be saved to .env — never committed to the repo)"
 
     # -------------------------------------------------------------------------
-    # Step 6 — README
+    # Step 7 — README
     # -------------------------------------------------------------------------
     echo ""
-    echo -e "${BOLD}Step 3: README${NC}"
+    echo -e "${BOLD}Step 4: README${NC}"
 
     if [[ -f "$TARGET_DIR/README.md" ]]; then
         echo -e "Existing README.md found — ${GREEN}preserving${NC}."
@@ -784,10 +948,10 @@ main() {
     fi
 
     # -------------------------------------------------------------------------
-    # Step 7 — License
+    # Step 8 — License
     # -------------------------------------------------------------------------
     echo ""
-    echo -e "${BOLD}Step 4: License${NC}"
+    echo -e "${BOLD}Step 5: License${NC}"
 
     if [[ -f "$TARGET_DIR/LICENSE" ]]; then
         echo -e "Existing LICENSE found — ${GREEN}preserving${NC}."
@@ -855,7 +1019,8 @@ main() {
     echo -e "  Project:    ${CYAN}$PROJECT_NAME${NC}"
     echo -e "  Directory:  ${CYAN}$TARGET_DIR${NC}"
     echo -e "  Nginx port: ${CYAN}$NGINX_PORT${NC}"
-    echo -e "  MySQL port: ${CYAN}$MYSQL_PORT${NC}"
+    echo -e "  Database:   ${CYAN}$DB_LABEL${NC}"
+    echo -e "  DB port:    ${CYAN}$DB_HOST_PORT${NC}"
     echo -e "  README:     ${CYAN}$README_STATUS${NC}"
     echo -e "  License:    ${CYAN}$LICENSE_STATUS${NC}"
     echo ""
@@ -869,13 +1034,13 @@ main() {
     # -------------------------------------------------------------------------
     # Execute — copy templates and apply configuration
     # -------------------------------------------------------------------------
-    copy_templates "$TARGET_DIR"
-    generate_env "$TARGET_DIR" "$PROJECT_NAME" "$NGINX_PORT" "$MYSQL_PORT" "$DB_PASSWORD"
+    copy_templates "$TARGET_DIR" "$PROJECT_NAME"
+    generate_env "$TARGET_DIR" "$PROJECT_NAME" "$NGINX_PORT" "$DB_HOST_PORT" "$DB_PASSWORD"
     generate_env_example "$TARGET_DIR"
 
     # Generate README if needed
     if [[ "$README_STATUS" == "generated" ]]; then
-        generate_readme "$TARGET_DIR" "$PROJECT_NAME" "$PROJECT_DESCRIPTION" "$NGINX_PORT" "$MYSQL_PORT"
+        generate_readme "$TARGET_DIR" "$PROJECT_NAME" "$PROJECT_DESCRIPTION" "$NGINX_PORT" "$DB_HOST_PORT"
     fi
 
     # Generate license if needed
@@ -884,10 +1049,10 @@ main() {
     fi
 
     # -------------------------------------------------------------------------
-    # Step 8 — Laravel installation
+    # Step 9 — Laravel installation
     # -------------------------------------------------------------------------
     echo ""
-    echo -e "${BOLD}Step 5: Laravel Installation${NC}"
+    echo -e "${BOLD}Step 6: Laravel Installation${NC}"
     echo ""
     read -rp "Install Laravel now? This will start Docker and run composer. (y/n): " install_now
 
@@ -904,7 +1069,7 @@ main() {
     # -------------------------------------------------------------------------
     # Summary
     # -------------------------------------------------------------------------
-    print_summary "$PROJECT_NAME" "$TARGET_DIR" "$NGINX_PORT" "$MYSQL_PORT" "$DB_PASSWORD" "$LARAVEL_INSTALLED" "$README_STATUS" "$LICENSE_STATUS"
+    print_summary "$PROJECT_NAME" "$TARGET_DIR" "$NGINX_PORT" "$DB_HOST_PORT" "$DB_PASSWORD" "$LARAVEL_INSTALLED" "$README_STATUS" "$LICENSE_STATUS"
 }
 
 main "$@"
