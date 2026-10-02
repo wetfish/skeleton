@@ -1,14 +1,14 @@
 db:
-    image: {{DB_IMAGE}}
-    container_name: ${APP_NAME}-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_DATABASE}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    volumes:
-      - dbdata:/var/lib/postgresql/data
-    networks:
-      - app-network
+  image: {{DB_IMAGE}}
+  container_name: ${APP_NAME}-db
+  restart: unless-stopped
+  environment:
+    POSTGRES_DB: ${DB_DATABASE}
+    POSTGRES_USER: ${DB_USERNAME}
+    POSTGRES_PASSWORD: ${DB_PASSWORD}
+  ports:
+    - "${DB_PORT:-5432}:5432"
+  volumes:
+    - dbdata:/var/lib/postgresql/data
+  networks:
+    - app-network

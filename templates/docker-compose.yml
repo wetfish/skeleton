@@ -24,7 +24,7 @@ services:
     networks:
       - app-network
 
-{{DB_SERVICE}}
+  {{DB_SERVICE}}
 
 networks:
   app-network:

@@ -335,17 +335,30 @@ select_database() {
     echo -e "Database: ${GREEN}$DB_LABEL${NC}"
 }
 
-# Replace the line containing a {{PLACEHOLDER}} with the contents of a fragment file
+# Replace the line containing a {{PLACEHOLDER}} with the contents of a fragment file.
+# Each fragment line is indented to match the placeholder, so fragments can be
+# written at column 0 (e.g. "db:" lands under "services:" in docker-compose.yml).
 insert_fragment() {
     local file="$1"
     local placeholder="$2"
     local fragment="$3"
     local tmp
+
+    if [[ ! -f "$fragment" ]]; then
+        echo -e "${RED}Template fragment not found: $fragment${NC}" >&2
+        exit 1
+    fi
+
     tmp="$(mktemp)"
 
     awk -v ph="$placeholder" -v frag="$fragment" '
         index($0, ph) {
-            while ((getline line < frag) > 0) print line
+            match($0, /^[ \t]*/)
+            indent = substr($0, 1, RLENGTH)
+            while ((getline line < frag) > 0) {
+                if (line == "") print ""
+                else print indent line
+            }
             close(frag)
             next
         }
